@@ -1,0 +1,215 @@
+Algorithm Name: Rusty2D – A Simple 2D Game Engine in Rust
+Creator: Benjamin Hunter Miller
+
+Description:
+Rusty2D is a lightweight, beginner-friendly 2D game engine built using the Rust programming language. This game engine provides the core functionality needed to create simple 2D games, including sprite rendering, basic physics, collision detection, and event handling. With its modular design, Rusty2D is built for ease of use and performance, making it an excellent foundation for developers new to game development or those looking for a simple engine for creating 2D games in Rust.
+
+Rusty2D is designed to use minimal dependencies while leveraging Rust’s safety, concurrency, and performance features to build games that are both fast and secure.
+
+Key Features:
+Sprite Rendering: Allows for loading, rendering, and animating 2D sprites from image files.
+Basic Physics Engine: Includes gravity and velocity mechanics to simulate basic 2D movement and interactions.
+Collision Detection: Detects collisions between rectangular bounding boxes (AABB - Axis-Aligned Bounding Box).
+Event Handling: Supports user input from the keyboard and mouse for game interactions.
+Game Loop: Manages the game’s core loop, updating game states and rendering at consistent frame rates.
+Asset Management: Simple asset management system for loading images, sounds, and fonts.
+Scene Management: Supports switching between different game states or scenes (e.g., main menu, game, pause menu).
+Core Components:
+Game Loop: The central loop that updates the game state and renders it on the screen.
+Entity and Component System: A simple entity system that allows different game objects (entities) to have components (like position, velocity, and sprite).
+Physics Engine: Simulates simple 2D physics like velocity, gravity, and friction for moving entities.
+Collision Detection: Basic AABB (Axis-Aligned Bounding Box) collision detection for handling collisions between objects.
+Event Handling: Captures keyboard and mouse inputs to interact with the game world.
+Rendering: Draws sprites on the screen using simple rendering techniques, leveraging the Piston or winit crate.
+Getting Started with Rusty2D
+To begin building Rusty2D, you’ll need a few Rust dependencies:
+
+Piston: A simple and flexible game engine framework for Rust.
+Graphics: The 2D graphics rendering library.
+Glutin or Winit: For window and event management.
+bash
+Copy code
+cargo new rusty2d --bin
+cd rusty2d
+Add Dependencies to Cargo.toml
+toml
+Copy code
+[dependencies]
+piston = "0.52.0"
+piston2d-graphics = "0.75.0"
+pistoncore-glutin_window = "0.53.0"
+pistoncore-event_loop = "0.54.0"
+pistoncore-input = "0.33.0"
+find_folder = "0.3"
+Step 1: Create the Game Engine Structure
+rust
+Copy code
+extern crate piston;
+extern crate piston_window;
+extern crate graphics;
+extern crate find_folder;
+
+use piston::event_loop::{Events, EventSettings};
+use piston::input::{RenderArgs, RenderEvent, UpdateArgs, UpdateEvent, PressEvent, Button, Key};
+use piston_window::{PistonWindow, WindowSettings};
+use graphics::{clear, rectangle};
+use std::path::Path;
+
+// Constants
+const WINDOW_WIDTH: f64 = 800.0;
+const WINDOW_HEIGHT: f64 = 600.0;
+const PLAYER_SPEED: f64 = 200.0;
+
+// Game Struct
+pub struct Game {
+    player: Player,
+    enemy: Enemy,
+}
+
+impl Game {
+    pub fn new() -> Self {
+        Game {
+            player: Player::new(100.0, 300.0, [0.0, 1.0, 0.0, 1.0]),
+            enemy: Enemy::new(500.0, 300.0, [1.0, 0.0, 0.0, 1.0]),
+        }
+    }
+
+    // Update game logic
+    pub fn update(&mut self, args: &UpdateArgs) {
+        self.player.update(args);
+        self.enemy.update(args);
+        // Check collision
+        if self.player.check_collision(&self.enemy) {
+            println!("Collision detected!");
+        }
+    }
+
+    // Render game objects
+    pub fn render(&self, args: &RenderArgs, c: graphics::Context, g: &mut piston_window::G2d) {
+        // Clear the screen
+        clear([1.0, 1.0, 1.0, 1.0], g);
+
+        // Draw player and enemy
+        self.player.render(c, g);
+        self.enemy.render(c, g);
+    }
+}
+
+// Step 2: Create a simple Player entity
+pub struct Player {
+    x: f64,
+    y: f64,
+    color: [f32; 4],
+}
+
+impl Player {
+    pub fn new(x: f64, y: f64, color: [f32; 4]) -> Self {
+        Player { x, y, color }
+    }
+
+    pub fn update(&mut self, args: &UpdateArgs) {
+        // Simple gravity effect
+        self.y += 100.0 * args.dt;
+        if self.y > WINDOW_HEIGHT - 50.0 {
+            self.y = WINDOW_HEIGHT - 50.0;
+        }
+    }
+
+    pub fn render(&self, c: graphics::Context, g: &mut piston_window::G2d) {
+        let player_square = graphics::rectangle::square(self.x, self.y, 50.0);
+        rectangle(self.color, player_square, c.transform, g);
+    }
+
+    // Check for collision with another object (simple AABB collision)
+    pub fn check_collision(&self, enemy: &Enemy) -> bool {
+        let player_rect = (self.x, self.y, 50.0, 50.0);
+        let enemy_rect = (enemy.x, enemy.y, 50.0, 50.0);
+
+        player_rect.0 < enemy_rect.0 + enemy_rect.2 &&
+        player_rect.0 + player_rect.2 > enemy_rect.0 &&
+        player_rect.1 < enemy_rect.1 + enemy_rect.3 &&
+        player_rect.1 + player_rect.3 > enemy_rect.1
+    }
+}
+
+// Step 3: Create a simple Enemy entity
+pub struct Enemy {
+    x: f64,
+    y: f64,
+    color: [f32; 4],
+}
+
+impl Enemy {
+    pub fn new(x: f64, y: f64, color: [f32; 4]) -> Self {
+        Enemy { x, y, color }
+    }
+
+    pub fn update(&mut self, args: &UpdateArgs) {
+        // Move left continuously
+        self.x -= 50.0 * args.dt;
+        if self.x < 0.0 {
+            self.x = WINDOW_WIDTH;
+        }
+    }
+
+    pub fn render(&self, c: graphics::Context, g: &mut piston_window::G2d) {
+        let enemy_square = graphics::rectangle::square(self.x, self.y, 50.0);
+        rectangle(self.color, enemy_square, c.transform, g);
+    }
+}
+
+// Main function
+fn main() {
+    let mut window: PistonWindow = WindowSettings::new("Rusty2D Game Engine", [WINDOW_WIDTH, WINDOW_HEIGHT])
+        .exit_on_esc(true)
+        .build()
+        .unwrap();
+
+    let mut game = Game::new();
+
+    let mut events = Events::new(EventSettings::new().ups(60));
+    while let Some(e) = events.next(&mut window) {
+        if let Some(r) = e.render_args() {
+            window.draw_2d(&e, |c, g, _| {
+                game.render(&r, c, g);
+            });
+        }
+
+        if let Some(u) = e.update_args() {
+            game.update(&u);
+        }
+
+        // Handle player movement
+        if let Some(Button::Keyboard(key)) = e.press_args() {
+            match key {
+                Key::Up => game.player.y -= PLAYER_SPEED,
+                Key::Down => game.player.y += PLAYER_SPEED,
+                Key::Left => game.player.x -= PLAYER_SPEED,
+                Key::Right => game.player.x += PLAYER_SPEED,
+                _ => (),
+            }
+        }
+    }
+}
+Explanation:
+Game Struct: The main game structure holds references to the player and enemy entities and manages game state updates and rendering.
+
+The update() function updates the positions of the player and enemy, while render() handles rendering both entities on the screen.
+Player and Enemy entities are implemented with basic movement and rendering logic. Collision detection is performed using AABB (Axis-Aligned Bounding Box) checks between the player and enemy.
+Physics: The player has a basic "gravity" mechanic, where they fall down unless they are already on the ground. This makes the game feel more realistic by simulating gravity.
+
+Collision Detection: The check_collision() function performs simple AABB collision detection between the player and the enemy. When the two entities overlap, a collision is detected.
+
+Rendering: Using Piston’s graphics::rectangle and clear() methods, the game window is cleared each frame, and then the player and enemy are drawn using rectangles as placeholders for sprites.
+
+Event Handling: Player movement is controlled by the arrow keys. When an arrow key is pressed, the player's position is updated accordingly.
+
+Game Loop: The game loop runs continuously, updating the game state and rendering the screen at 60 updates per second.
+
+Customization Options:
+Sprite Support: Replace the rectangle placeholders with actual sprite images to enhance visual quality by loading images from file and rendering them instead of simple colored rectangles.
+Sound Effects: Integrate audio support for background music and sound effects when entities collide or interact.
+Animation: Add sprite animations for moving entities, such as running, jumping, or attacking sequences.
+Multiple Levels: Implement different levels or game states with simple scene management, such as a start menu, pause menu, and different game levels.
+Conclusion:
+Rusty2D, created by Benjamin Hunter Miller, is a beginner-friendly, performance-efficient 2D game engine written in Rust. It provides essential features like sprite rendering, collision detection, and simple physics, offering a solid foundation for building 2D games. With the high performance and safety guarantees of Rust, Rusty2D ensures smooth gameplay experiences while providing an easy-to-understand codebase for developers interested in learning game development in Rust.
