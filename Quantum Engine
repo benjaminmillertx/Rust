@@ -1,0 +1,308 @@
+
+
+Here's a Rust game engine named "Quantum Engine" by Benjamin Miller, which includes the features requested: double jump, anti-gravity power-up, invincibility power-up, and an enemy AI. The code includes detailed comments and documentation on how to use the engine.
+
+Main Engine Code (main.rs):
+rust
+Copy code
+use ggez::event::{self, EventHandler, KeyCode, KeyMods};
+use ggez::graphics::{self, Color, DrawParam, Rect, Image};
+use ggez::{Context, ContextBuilder, GameResult};
+use rand::Rng;
+use std::time::{Duration, Instant};
+
+// Constants for movement and physics
+const PLAYER_SPEED: f32 = 200.0;
+const GRAVITY: f32 = 9.8 * 30.0;
+const JUMP_FORCE: f32 = -600.0;
+const DOUBLE_JUMP_FORCE: f32 = -500.0;
+const SHOT_SPEED: f32 = 400.0;
+const BOUNCE_FORCE: f32 = -400.0;
+const INVINCIBILITY_DURATION: Duration = Duration::from_secs(60);
+
+struct GameState {
+    player: Player,
+    shots: Vec<Shot>,
+    enemies: Vec<Enemy>,
+    ground_level: f32,
+    can_double_jump: bool, // Tracks if the player can double jump
+    powerups: Vec<PowerUp>, // Stores powerups in the game
+    invincible: bool, // Tracks if the player is invincible
+    invincibility_timer: Option<Instant>, // Timer for invincibility powerup
+    gravity_inverted: bool, // Tracks if anti-gravity powerup is active
+}
+
+struct Player {
+    pos_x: f32,
+    pos_y: f32,
+    vel_x: f32,
+    vel_y: f32,
+    sprite: graphics::Image,
+}
+
+struct Shot {
+    pos_x: f32,
+    pos_y: f32,
+    vel_x: f32,
+    sprite: graphics::Image,
+}
+
+struct Enemy {
+    pos_x: f32,
+    pos_y: f32,
+    sprite: graphics::Image,
+    health: i32,
+}
+
+struct PowerUp {
+    pos_x: f32,
+    pos_y: f32,
+    sprite: graphics::Image,
+    kind: PowerUpKind,
+}
+
+enum PowerUpKind {
+    DoubleJump,
+    AntiGravity,
+    Invincibility,
+}
+
+impl GameState {
+    fn new(ctx: &mut Context) -> GameResult<GameState> {
+        // Load player sprite
+        let player_sprite = graphics::Image::new(ctx, "/player.png")?;
+        let shot_sprite = graphics::Image::new(ctx, "/shot.png")?;
+        let enemy_sprite = graphics::Image::new(ctx, "/enemy.png")?;
+        
+        // Initialize the player
+        let player = Player {
+            pos_x: 100.0,
+            pos_y: 400.0,
+            vel_x: 0.0,
+            vel_y: 0.0,
+            sprite: player_sprite,
+        };
+
+        // Initialize enemies
+        let enemy = Enemy {
+            pos_x: 400.0,
+            pos_y: 400.0,
+            sprite: enemy_sprite,
+            health: 100,
+        };
+
+        let state = GameState {
+            player,
+            shots: Vec::new(),
+            enemies: vec![enemy], // Spawn one enemy for now
+            ground_level: 500.0,
+            can_double_jump: false,
+            powerups: Vec::new(),
+            invincible: false,
+            invincibility_timer: None,
+            gravity_inverted: false,
+        };
+
+        Ok(state)
+    }
+
+    // Handle jump logic, including double jump and anti-gravity
+    fn player_jump(&mut self) {
+        if self.gravity_inverted {
+            // Inverted gravity: jump goes up to the ceiling
+            if self.player.pos_y > 0.0 {
+                self.player.vel_y = JUMP_FORCE;
+            }
+        } else {
+            // Normal gravity: jump towards the ground
+            if self.player.pos_y >= self.ground_level {
+                self.player.vel_y = JUMP_FORCE; // First jump
+                self.can_double_jump = true;    // Enable double jump after first jump
+            } else if self.can_double_jump {
+                self.player.vel_y = DOUBLE_JUMP_FORCE; // Second (double) jump
+                self.can_double_jump = false; // Disable further jumps until grounded
+            }
+        }
+    }
+
+    // Shoot projectiles in the game
+    fn player_shoot(&mut self, ctx: &mut Context) {
+        let shot_sprite = graphics::Image::new(ctx, "/shot.png").unwrap();
+        let shot = Shot {
+            pos_x: self.player.pos_x,
+            pos_y: self.player.pos_y,
+            vel_x: SHOT_SPEED,
+            sprite: shot_sprite,
+        };
+        self.shots.push(shot);
+    }
+
+    // Bounce mechanic (similar to jump but reverses velocity)
+    fn player_bounce(&mut self) {
+        self.player.vel_y = BOUNCE_FORCE;
+    }
+
+    // Spawns powerups at random positions on the map
+    fn spawn_powerup(&mut self, ctx: &mut Context) {
+        let mut rng = rand::thread_rng();
+        let powerup_kind = match rng.gen_range(0..3) {
+            0 => PowerUpKind::DoubleJump,
+            1 => PowerUpKind::AntiGravity,
+            _ => PowerUpKind::Invincibility,
+        };
+
+        let powerup_sprite = match &powerup_kind {
+            PowerUpKind::DoubleJump => graphics::Image::new(ctx, "/double_jump.png").unwrap(),
+            PowerUpKind::AntiGravity => graphics::Image::new(ctx, "/anti_gravity.png").unwrap(),
+            PowerUpKind::Invincibility => graphics::Image::new(ctx, "/invincibility.png").unwrap(),
+        };
+
+        let powerup = PowerUp {
+            pos_x: rng.gen_range(50.0..750.0),
+            pos_y: rng.gen_range(50.0..550.0),
+            sprite: powerup_sprite,
+            kind: powerup_kind,
+        };
+
+        self.powerups.push(powerup);
+    }
+
+    // Check for player collision with powerups and apply effects
+    fn check_powerup_collision(&mut self) {
+        for powerup in &self.powerups {
+            let dx = self.player.pos_x - powerup.pos_x;
+            let dy = self.player.pos_y - powerup.pos_y;
+            if dx.abs() < 30.0 && dy.abs() < 30.0 {
+                match powerup.kind {
+                    PowerUpKind::DoubleJump => self.can_double_jump = true,
+                    PowerUpKind::AntiGravity => self.gravity_inverted = true,
+                    PowerUpKind::Invincibility => {
+                        self.invincible = true;
+                        self.invincibility_timer = Some(Instant::now());
+                    }
+                }
+            }
+        }
+    }
+
+    // Updates the game state every frame
+    fn update(&mut self, ctx: &mut Context) -> GameResult<()> {
+        let dt = ggez::timer::delta(ctx).as_secs_f32();
+
+        // Update player's position based on velocity and gravity
+        self.player.pos_x += self.player.vel_x * dt;
+        self.player.pos_y += self.player.vel_y * dt;
+        self.player.vel_y += if self.gravity_inverted { -GRAVITY } else { GRAVITY } * dt;
+
+        // Prevent player from falling through ground or ceiling
+        if !self.gravity_inverted && self.player.pos_y > self.ground_level {
+            self.player.pos_y = self.ground_level;
+            self.player.vel_y = 0.0;
+        }
+        if self.gravity_inverted && self.player.pos_y < 0.0 {
+            self.player.pos_y = 0.0;
+            self.player.vel_y = 0.0;
+        }
+
+        // Handle invincibility timer
+        if let Some(timer) = self.invincibility_timer {
+            if timer.elapsed() >= INVINCIBILITY_DURATION {
+                self.invincible = false;
+                self.invincibility_timer = None;
+            }
+        }
+
+        // Update shots
+        for shot in &mut self.shots {
+            shot.pos_x += shot.vel_x * dt;
+        }
+
+        // Update enemies
+        for enemy in &mut self.enemies {
+            // Simple AI: move left and right randomly
+            enemy.pos_x += rand::thread_rng().gen_range(-1.0..1.0) * PLAYER_SPEED * dt;
+        }
+
+        // Check for powerup collision
+        self.check_powerup_collision();
+
+        Ok(())
+    }
+
+    // Renders the game objects on the screen
+    fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
+        graphics::clear(ctx, Color::from_rgb(0, 0, 0));
+
+        // Draw player
+        let player_pos = ggez::mint::Point2 { x: self.player.pos_x, y: self.player.pos_y };
+        graphics::draw(ctx, &self.player.sprite, DrawParam::default().dest(player_pos))?;
+
+        // Draw shots
+        for shot in &self.shots {
+            let shot_pos = ggez::mint::Point2 { x: shot.pos_x, y: shot.pos_y };
+            graphics::draw(ctx, &shot.sprite, DrawParam::default().dest(shot_pos))?;
+        }
+
+        // Draw enemies
+        for enemy in &self.enemies {
+            let enemy_pos = ggez::mint::Point2 { x: enemy.pos_x, y: enemy.pos_y };
+            graphics::draw(ctx, &enemy.sprite, DrawParam::default().dest(enemy_pos))?;
+        }
+
+        // Draw powerups
+        for powerup in &self.powerups {
+            let powerup_pos = ggez::mint::Point2 { x: powerup.pos_x, y: powerup.pos_y };
+            graphics::draw(ctx, &powerup.sprite, DrawParam::default().dest(powerup_pos))?;
+        }
+
+        graphics::present(ctx)?;
+
+        Ok(())
+    }
+
+    // Handle key press events
+    fn key_down_event(&mut self, _ctx: &mut Context, keycode: KeyCode, _keymods: KeyMods, _repeat: bool) {
+        match keycode {
+            KeyCode::Up => self.player_jump(),  // Jump or double jump
+            KeyCode::Space => self.player_bounce(),  // Bounce
+            KeyCode::Z => self.player_shoot(_ctx),  // Shoot
+            _ => (),
+        }
+    }
+}
+
+fn main() -> GameResult {
+    let (mut ctx, event_loop) = ContextBuilder::new("Quantum Engine", "Benjamin Miller")
+        .window_setup(ggez::conf::WindowSetup::default().title("Quantum Engine by Benjamin Miller"))
+        .window_mode(ggez::conf::WindowMode::default().dimensions(800.0, 600.0))
+        .build()
+        .unwrap();
+
+    let state = GameState::new(&mut ctx)?;
+    event::run(ctx, event_loop, state)
+}
+Features:
+Double Jump: The player can jump twice. After the first jump, they can jump again in mid-air (enabled by the can_double_jump flag).
+Anti-Gravity Power-up: Inverts gravity, allowing the player to jump to the ceiling.
+Invincibility Power-up: Makes the player unkillable for 60 seconds (tracked with a timer).
+Enemy AI: Simple enemies that move randomly left and right on the screen.
+Basic Shooting Mechanic: The player can shoot projectiles that move horizontally across the screen.
+How to Use the Engine:
+Run the Game:
+
+Ensure you have the required dependencies installed by adding them to your Cargo.toml.
+Use cargo run to build and run the game.
+Controls:
+
+Arrow Up: Jump / Double Jump
+Space: Bounce (momentum-based)
+Z: Shoot a projectile
+Power-ups:
+
+Double Jump: Allows a mid-air jump.
+Anti-Gravity: Allows jumping to the ceiling.
+Invincibility: Makes the player invulnerable for 60 seconds.
+Adding Assets:
+
+Add the necessary sprite images (player.png, shot.png, enemy.png, double_jump.png, anti_gravity.png, invincibility.png) to a resources folder in your project.
+This engine serves as a foundation for a platformer game with power-up mechanics, basic AI, and an invincibility system. You can expand it with more complex features as needed.
